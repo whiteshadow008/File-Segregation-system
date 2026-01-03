@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>File Segregation System</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f4f6f9; }
+    .container { max-width: 900px; margin-top: 40px; }
+    .card { border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    .btn-custom { background: #4CAF50; color: white; border-radius: 10px; }
+    .btn-custom:hover { background: #45a049; }
+    .subjects label { margin-right: 10px; }
+    #preview { margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card p-4">
+      <h2 class="text-center mb-3">📂 File & Folder Segregation System</h2>
+
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="alert alert-warning">{{ messages[0] }}</div>
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" enctype="multipart/form-data" id="upload-form">
+
+        <!-- Department -->
+        <div class="mb-3">
+          <label class="form-label">Choose Department</label>
+          <select class="form-select" name="department" id="department" required>
+            <option value="">-- Select Department --</option>
+            {% for dept, subs in departments.items() %}
+              <option value="{{ dept }}">{{ dept }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Subjects -->
+        <div class="mb-3">
+          <label class="form-label">Select Subjects</label>
+          <div id="subjects-container" class="subjects"></div>
+        </div>
+
+        <!-- Upload Type -->
+        <div class="mb-3">
+          <label class="form-label">Upload Type</label>
+          <select class="form-select" name="upload_type" id="upload_type" required>
+            <option value="file">Single File</option>
+            <option value="folder">Folder</option>
+            <option value="zip">ZIP File</option>
+          </select>
+        </div>
+
+        <!-- File Upload -->
+        <div class="mb-3" id="file-upload">
+          <label class="form-label">Upload File</label>
+          <input type="file" class="form-control" name="file" id="file-input">
+        </div>
+
+        <!-- Folder Upload -->
+        <div class="mb-3 d-none" id="folder-upload">
+          <label class="form-label">Upload Folder</label>
+          <input type="file" class="form-control" name="folder" webkitdirectory directory multiple>
+        </div>
+
+        <!-- ZIP Upload -->
+        <div class="mb-3 d-none" id="zip-upload">
+          <label class="form-label">Upload ZIP</label>
+          <input type="file" class="form-control" name="zip_file" id="zip-input" accept=".zip">
+        </div>
+
+        <button type="submit" class="btn btn-custom w-100">🚀 Segregate Files</button>
+      </form>
+    </div>
+
+    <!-- Predicted Labelling Preview -->
+    <div id="preview" style="display:none;">
+        <h4>🔍 Predicted Labelling Preview:</h4>
+        <ul id="file-list"></ul>
+    </div>
+  </div>
+
+  <!-- JS Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    const departments = {{ departments|tojson }};
+
+    // Show subjects based on department
+    document.getElementById("department").addEventListener("change", function(){
+        const dept = this.value;
+        const container = document.getElementById("subjects-container");
+        container.innerHTML = "";
+        if(departments[dept]){
+            departments[dept].forEach(sub=>{
+                const label = document.createElement("label");
+                label.innerHTML = `<input type="checkbox" name="subjects" value="${sub}"> ${sub}`;
+                container.appendChild(label);
+            });
+        }
+    });
+
+    // Show correct upload input
+    document.getElementById("upload_type").addEventListener("change", function(){
+        const type = this.value;
+        document.getElementById("file-upload").classList.add("d-none");
+        document.getElementById("folder-upload").classList.add("d-none");
+        document.getElementById("zip-upload").classList.add("d-none");
+
+        if(type === "file") document.getElementById("file-upload").classList.remove("d-none");
+        else if(type === "folder") document.getElementById("folder-upload").classList.remove("d-none");
+        else if(type === "zip") document.getElementById("zip-upload").classList.remove("d-none");
+    });
+
+    // ZIP Preview
+    document.getElementById("zip-input")?.addEventListener("change", async function(event){
+        const file = event.target.files[0];
+        if(!file) return;
+
+        const zip = new JSZip();
+        const content = await zip.loadAsync(file);
+        const list = document.getElementById("file-list");
+        const preview = document.getElementById("preview");
+
+        list.innerHTML = "";
+
+        for(const filename of Object.keys(content.files)){
+            if(!content.files[filename].dir){
+                try{
+                    let extractedText = await content.files[filename].async("string");
+                    extractedText = extractedText.substring(0,2000);
+
+                    // Call Flask API for prediction
+                    const response = await fetch("/predict", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text: extractedText })
+                    });
+
+                    let result = response.ok ? await response.json() : { prediction: "Error", confidence: 0 };
+
+                    const li = document.createElement("li");
+                    li.textContent = `${filename} → ${result.prediction} (${result.confidence || 0}%)`;
+                    list.appendChild(li);
+
+                }catch(err){
+                    const li = document.createElement("li");
+                    li.textContent = `${filename} → Error extracting`;
+                    list.appendChild(li);
+                }
+            }
+        }
+
+        preview.style.display = "block";
+    });
+  </script>
+</body>
+</html>
